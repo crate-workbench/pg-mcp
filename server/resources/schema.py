@@ -18,8 +18,7 @@ def register_schema_resources():
         # Get all non-system schemas
         schemas_query = """
             SELECT 
-                schema_name,
-                obj_description(pg_namespace.oid) as description
+                schema_name
             FROM information_schema.schemata
             JOIN pg_namespace ON pg_namespace.nspname = schema_name
             WHERE 
@@ -45,9 +44,7 @@ def register_schema_resources():
             # Get all tables in the schema
             tables_query = """
                 SELECT 
-                    t.table_name,
-                    obj_description(format('"%s"."%s"', t.table_schema, t.table_name)::regclass::oid) as description,
-                    pg_stat_get_tuples_inserted(format('"%s"."%s"', t.table_schema, t.table_name)::regclass::oid) as row_count
+                    t.table_name
                 FROM information_schema.tables t
                 WHERE 
                     t.table_schema = $1
@@ -76,8 +73,7 @@ def register_schema_resources():
                         c.column_name,
                         c.data_type,
                         c.is_nullable,
-                        c.column_default,
-                        col_description(format('"%s"."%s"', c.table_schema, c.table_name)::regclass::oid, c.ordinal_position) as description
+                        c.column_default
                     FROM information_schema.columns c
                     WHERE
                         c.table_schema = $1 AND
@@ -85,7 +81,7 @@ def register_schema_resources():
                     ORDER BY c.ordinal_position
                 """
                 columns = await execute_query(columns_query, conn_id, [schema_name, table_name])
-                
+
                 # Get constraints for this table to identify primary keys, etc.
                 constraints_query = """
                     SELECT 
@@ -97,8 +93,7 @@ def register_schema_resources():
                             WHEN c.contype = 'f' THEN 'FOREIGN KEY'
                             WHEN c.contype = 'c' THEN 'CHECK'
                             ELSE 'OTHER'
-                        END as constraint_type_desc,
-                        ARRAY_AGG(col.attname ORDER BY u.attposition) as column_names
+                        END as constraint_type_desc
                     FROM 
                         pg_constraint c
                     JOIN 
@@ -106,9 +101,7 @@ def register_schema_resources():
                     JOIN 
                         pg_class t ON t.oid = c.conrelid
                     LEFT JOIN 
-                        LATERAL unnest(c.conkey) WITH ORDINALITY AS u(attnum, attposition) ON TRUE
-                    LEFT JOIN 
-                        pg_attribute col ON col.attrelid = t.oid AND col.attnum = u.attnum
+                        pg_attribute col ON col.attrelid = t.oid
                     WHERE 
                         n.nspname = $1
                         AND t.relname = $2
@@ -118,7 +111,7 @@ def register_schema_resources():
                         c.contype, c.conname
                 """
                 constraints = await execute_query(constraints_query, conn_id, [schema_name, table_name])
-                
+
                 # Process columns and add constraint information
                 for column in columns:
                     column_name = column['column_name']
@@ -128,56 +121,22 @@ def register_schema_resources():
                     for constraint in constraints:
                         if column_name in constraint.get('column_names', []):
                             column_constraints.append(constraint['constraint_type_desc'])
-                    
+
                     # Add column info
                     column_info = {
                         "name": column_name,
                         "type": column['data_type'],
                         "nullable": column['is_nullable'] == 'YES',
                         "default": column['column_default'],
-                        "description": column['description'],
                         "constraints": column_constraints
                     }
                     
                     table_info["columns"].append(column_info)
                 
                 # Process foreign key constraints
-                foreign_keys_query = """
-                    SELECT 
-                        c.conname as constraint_name,
-                        ARRAY_AGG(col.attname ORDER BY u.attposition) as column_names,
-                        nr.nspname as referenced_schema,
-                        ref_table.relname as referenced_table,
-                        ARRAY_AGG(ref_col.attname ORDER BY u2.attposition) as referenced_columns
-                    FROM 
-                        pg_constraint c
-                    JOIN 
-                        pg_namespace n ON n.oid = c.connamespace
-                    JOIN 
-                        pg_class t ON t.oid = c.conrelid
-                    JOIN 
-                        pg_class ref_table ON ref_table.oid = c.confrelid
-                    JOIN 
-                        pg_namespace nr ON nr.oid = ref_table.relnamespace
-                    LEFT JOIN 
-                        LATERAL unnest(c.conkey) WITH ORDINALITY AS u(attnum, attposition) ON TRUE
-                    LEFT JOIN 
-                        pg_attribute col ON col.attrelid = t.oid AND col.attnum = u.attnum
-                    LEFT JOIN 
-                        LATERAL unnest(c.confkey) WITH ORDINALITY AS u2(attnum, attposition) ON TRUE
-                    LEFT JOIN 
-                        pg_attribute ref_col ON ref_col.attrelid = c.confrelid AND ref_col.attnum = u2.attnum
-                    WHERE 
-                        n.nspname = $1
-                        AND t.relname = $2
-                        AND c.contype = 'f'
-                    GROUP BY
-                        c.conname, nr.nspname, ref_table.relname
-                    ORDER BY 
-                        c.conname
-                """
-                foreign_keys = await execute_query(foreign_keys_query, conn_id, [schema_name, table_name])
-                
+                # CrateDB does not provide foreign key constraints.
+                foreign_keys = []
+
                 for fk in foreign_keys:
                     fk_info = {
                         "name": fk['constraint_name'],
@@ -201,8 +160,7 @@ def register_schema_resources():
         """List all non-system schemas in the database."""
         query = """
             SELECT 
-                schema_name,
-                obj_description(pg_namespace.oid) as description
+                schema_name
             FROM information_schema.schemata
             JOIN pg_namespace ON pg_namespace.nspname = schema_name
             WHERE 
@@ -217,9 +175,7 @@ def register_schema_resources():
         """List all tables in a specific schema with their descriptions."""
         query = """
             SELECT 
-                t.table_name,
-                obj_description(format('"%s"."%s"', t.table_schema, t.table_name)::regclass::oid) as description,
-                pg_stat_get_tuples_inserted(format('"%s"."%s"', t.table_schema, t.table_name)::regclass::oid) as total_rows
+                t.table_name
             FROM information_schema.tables t
             WHERE 
                 t.table_schema = $1
@@ -236,8 +192,7 @@ def register_schema_resources():
                 c.column_name,
                 c.data_type,
                 c.is_nullable,
-                c.column_default,
-                col_description(format('"%s"."%s"', c.table_schema, c.table_name)::regclass::oid, c.ordinal_position) as description
+                c.column_default
             FROM information_schema.columns c
             WHERE
                 c.table_schema = $1 AND
@@ -252,10 +207,7 @@ def register_schema_resources():
         query = """
             SELECT 
                 i.relname as index_name,
-                pg_get_indexdef(i.oid) as index_definition,
-                obj_description(i.oid) as description,
                 am.amname as index_type,
-                ARRAY_AGG(a.attname ORDER BY k.i) as column_names,
                 ix.indisunique as is_unique,
                 ix.indisprimary as is_primary,
                 ix.indisexclusion as is_exclusion
@@ -270,9 +222,7 @@ def register_schema_resources():
             JOIN 
                 pg_am am ON i.relam = am.oid
             LEFT JOIN 
-                LATERAL unnest(ix.indkey) WITH ORDINALITY AS k(attnum, i) ON TRUE
-            LEFT JOIN 
-                pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+                pg_attribute a ON a.attrelid = t.oid 
             WHERE 
                 n.nspname = $1
                 AND t.relname = $2
@@ -299,14 +249,11 @@ def register_schema_resources():
                     WHEN c.contype = 'x' THEN 'EXCLUSION'
                     ELSE 'OTHER'
                 END as constraint_type_desc,
-                obj_description(c.oid) as description,
-                pg_get_constraintdef(c.oid) as definition,
                 CASE 
                     WHEN c.contype = 'f' THEN 
                         (SELECT nspname FROM pg_namespace WHERE oid = ref_table.relnamespace) || '.' || ref_table.relname
                     ELSE NULL
-                END as referenced_table,
-                ARRAY_AGG(col.attname ORDER BY u.attposition) as column_names
+                END as referenced_table
             FROM 
                 pg_constraint c
             JOIN 
@@ -316,9 +263,7 @@ def register_schema_resources():
             LEFT JOIN 
                 pg_class ref_table ON ref_table.oid = c.confrelid
             LEFT JOIN 
-                LATERAL unnest(c.conkey) WITH ORDINALITY AS u(attnum, attposition) ON TRUE
-            LEFT JOIN 
-                pg_attribute col ON col.attrelid = t.oid AND col.attnum = u.attnum
+                pg_attribute col ON col.attrelid = t.oid 
             WHERE 
                 n.nspname = $1
                 AND t.relname = $2
@@ -335,8 +280,6 @@ def register_schema_resources():
         query = """
             SELECT 
                 i.relname as index_name,
-                pg_get_indexdef(i.oid) as index_definition,
-                obj_description(i.oid) as description,
                 am.amname as index_type,
                 ix.indisunique as is_unique,
                 ix.indisprimary as is_primary,
@@ -345,9 +288,7 @@ def register_schema_resources():
                 ix.indisclustered as is_clustered,
                 ix.indisvalid as is_valid,
                 i.relpages as pages,
-                i.reltuples as rows,
-                ARRAY_AGG(a.attname ORDER BY k.i) as column_names,
-                ARRAY_AGG(pg_get_indexdef(i.oid, k.i, false) ORDER BY k.i) as column_expressions
+                i.reltuples as rows
             FROM 
                 pg_index ix
             JOIN 
@@ -359,9 +300,7 @@ def register_schema_resources():
             JOIN 
                 pg_am am ON i.relam = am.oid
             LEFT JOIN 
-                LATERAL unnest(ix.indkey) WITH ORDINALITY AS k(attnum, i) ON TRUE
-            LEFT JOIN 
-                pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+                pg_attribute a ON a.attrelid = t.oid 
             WHERE 
                 n.nspname = $1
                 AND t.relname = $2
@@ -389,17 +328,14 @@ def register_schema_resources():
                     WHEN c.contype = 'x' THEN 'EXCLUSION'
                     ELSE 'OTHER'
                 END as constraint_type_desc,
-                obj_description(c.oid) as description,
-                pg_get_constraintdef(c.oid) as definition,
                 CASE 
                     WHEN c.contype = 'f' THEN 
                         (SELECT nspname FROM pg_namespace WHERE oid = ref_table.relnamespace) || '.' || ref_table.relname
                     ELSE NULL
                 END as referenced_table,
-                ARRAY_AGG(col.attname ORDER BY u.attposition) as column_names,
                 CASE 
                     WHEN c.contype = 'f' THEN 
-                        ARRAY_AGG(ref_col.attname ORDER BY u2.attposition)
+                        ARRAY_AGG(ref_col.attname)
                     ELSE NULL
                 END as referenced_columns
             FROM 
@@ -411,13 +347,9 @@ def register_schema_resources():
             LEFT JOIN 
                 pg_class ref_table ON ref_table.oid = c.confrelid
             LEFT JOIN 
-                LATERAL unnest(c.conkey) WITH ORDINALITY AS u(attnum, attposition) ON TRUE
+                pg_attribute col ON col.attrelid = t.oid 
             LEFT JOIN 
-                pg_attribute col ON col.attrelid = t.oid AND col.attnum = u.attnum
-            LEFT JOIN 
-                LATERAL unnest(c.confkey) WITH ORDINALITY AS u2(attnum, attposition) ON c.contype = 'f'
-            LEFT JOIN 
-                pg_attribute ref_col ON c.contype = 'f' AND ref_col.attrelid = c.confrelid AND ref_col.attnum = u2.attnum
+                pg_attribute ref_col ON c.contype = 'f' AND ref_col.attrelid = c.confrelid 
             WHERE 
                 n.nspname = $1
                 AND t.relname = $2

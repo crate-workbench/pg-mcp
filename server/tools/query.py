@@ -78,7 +78,7 @@ def register_query_tools():
             Complete JSON-formatted execution plan
         """
         # Prepend EXPLAIN to the query
-        explain_query = f"EXPLAIN (FORMAT JSON) {query}"
+        explain_query = f"EXPLAIN {query}"
         
         # Execute the explain query
         result = await execute_query(explain_query, conn_id, params)
