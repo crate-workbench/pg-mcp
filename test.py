@@ -233,7 +233,7 @@ async def run(connection_string: str | None):
                                             print(f"Error fetching extensions: {e}")
                                                 
                                     # Find a schema with tables to test table resources
-                                    for schema_idx, schema in enumerate(schemas_data[:3]):
+                                    for schema_idx, schema in enumerate(schemas_data[:10]):
                                         schema_name = schema.get('schema_name')
                                         
                                         print(f"\nTesting tables for schema '{schema_name}'...")
@@ -292,7 +292,7 @@ async def run(connection_string: str | None):
                                                                     break
                                                     
                                                     # Test disconnect tool if available
-                                                    break  # Exit schema loop once we've found a table
+                                                    # break  # Exit schema loop once we've found a table
                                 except json.JSONDecodeError:
                                     print(f"Error parsing schemas: {content_item.text[:100]}")
                         
